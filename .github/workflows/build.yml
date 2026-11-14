@@ -35,14 +35,30 @@ jobs:
         with:
           gradle-version: '8.10'
 
-      - name: Setup Android SDK (API 35, Build-Tools 35.0.0)
-        uses: android-actions/setup-android@v3
-
-      - name: Install pinned Android SDK components
+      - name: Install pinned Android SDK components (API 35, Build-Tools 35.0.0)
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platform-tools" "platforms;android-35" "platforms;android-34" "platforms;android-33" "platforms;android-32" "build-tools;35.0.0"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -n 1)
+          fi
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found under $ANDROID_HOME/cmdline-tools"
+            exit 1
+          fi
+          echo "Using sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "platforms;android-34" \
+            "platforms;android-33" \
+            "platforms;android-32" \
+            "build-tools;35.0.0"
 
       - name: Decode Keystore & Configure local.properties
         env:
@@ -61,13 +77,8 @@ jobs:
             echo "::error::Decoded keystore is empty or invalid base64!"
             exit 1
           fi
-          cat <<EOF_PROPS > local.properties
-          sdk.dir=$ANDROID_HOME
-          storeFile=$RUNNER_TEMP/release.keystore
-          keyAlias=$KEY_ALIAS
-          storePassword=$STORE_PASSWORD
-          keyPassword=$KEY_PASSWORD
-          EOF_PROPS
+          printf "sdk.dir=%s\nstoreFile=%s\nkeyAlias=%s\nstorePassword=%s\nkeyPassword=%s\n" \
+            "$ANDROID_HOME" "$RUNNER_TEMP/release.keystore" "$KEY_ALIAS" "$STORE_PASSWORD" "$KEY_PASSWORD" > local.properties
           echo "Configured local.properties with keystore at $RUNNER_TEMP/release.keystore"
 
       - name: Extract versionName from app/build.gradle
