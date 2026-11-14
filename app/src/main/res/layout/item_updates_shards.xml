@@ -22,31 +22,61 @@
 
     <TextView
         android:id="@+id/updates_shards_status"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="@dimen/margin_8"
+        android:layout_marginEnd="@dimen/margin_8"
         android:textAppearance="@style/TextAppearance.AppCompat.Small.AmbientMusicMod.Medium"
+        app:layout_constraintEnd_toStartOf="@id/updates_shards_icon"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/updates_shards_title"
         tools:text="@string/updates_status_up_to_date" />
 
     <TextView
         android:id="@+id/updates_shards_version"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginEnd="@dimen/margin_8"
         android:text="@string/updates_version"
         android:textAppearance="@style/TextAppearance.AppCompat.Small.AmbientMusicMod"
+        app:layout_constraintEnd_toStartOf="@id/updates_shards_icon"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/updates_shards_status" />
 
     <TextView
         android:id="@+id/updates_shards_date"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginEnd="@dimen/margin_8"
         android:text="@string/updates_shards_date"
         android:textAppearance="@style/TextAppearance.AppCompat.Small.AmbientMusicMod"
+        app:layout_constraintEnd_toStartOf="@id/updates_shards_icon"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/updates_shards_version" />
+
+    <TextView
+        android:id="@+id/updates_shards_manifest_url"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:alpha="0.8"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small.AmbientMusicMod"
+        android:textSize="11sp"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/updates_shards_date"
+        tools:text="Manifest [Remote]: https://storage.googleapis.com/.../manifest.json" />
+
+    <TextView
+        android:id="@+id/updates_shards_download_details"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small.AmbientMusicMod.Medium"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/updates_shards_manifest_url"
+        tools:text="Packs: 14/28 • 142.3 / 285.0 MB (2.4 MB/s, ETA 59s)"
+        tools:visibility="visible" />
 
     <ImageView
         android:id="@+id/updates_shards_icon"
@@ -61,10 +91,11 @@
         android:id="@+id/updates_shards_track_data_loading"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:indeterminate="true"
+        android:layout_marginTop="8dp"
+        android:indeterminate="false"
+        android:max="100"
         android:visibility="gone"
-        app:layout_constraintTop_toBottomOf="@id/updates_shards_date"
+        app:layout_constraintTop_toBottomOf="@id/updates_shards_download_details"
         app:trackCornerRadius="4dp"
         app:trackThickness="8dp" />
 
@@ -74,7 +105,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="@dimen/margin_8"
         android:orientation="horizontal"
-        app:layout_constraintTop_toBottomOf="@id/updates_shards_date">
+        app:layout_constraintTop_toBottomOf="@id/updates_shards_track_data_loading">
 
         <LinearLayout
             android:id="@+id/updates_shards_track_data"
@@ -202,6 +233,5 @@
             tools:icon="@drawable/ic_add" />
 
     </LinearLayout>
-
 
 </androidx.constraintlayout.widget.ConstraintLayout>

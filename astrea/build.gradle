@@ -100,4 +100,6 @@ dependencies {
 
     //System stubs (not included in APK) for DeviceConfig, which will be ignored
     compileOnly project(path: ':systemstubs')
+
+    testImplementation 'junit:junit:4.13.2'
 }

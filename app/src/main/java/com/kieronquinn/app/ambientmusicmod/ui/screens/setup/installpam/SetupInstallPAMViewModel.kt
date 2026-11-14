@@ -22,7 +22,9 @@ import com.kieronquinn.app.ambientmusicmod.utils.extensions.onPackageChanged
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
 
 abstract class SetupInstallPAMViewModel: ViewModel() {
 
@@ -31,11 +33,12 @@ abstract class SetupInstallPAMViewModel: ViewModel() {
     abstract fun restartDownload()
     abstract fun moveToNext()
     abstract fun onInstallClicked()
+    abstract fun onLocalApkSelected(uri: Uri)
 
     sealed class State {
         object Loading: State()
         data class Downloading(val progress: Double): State()
-        object Error: State()
+        data class Error(val reason: String): State()
         object DownloadComplete: State()
         object Installed: State()
     }
@@ -43,7 +46,7 @@ abstract class SetupInstallPAMViewModel: ViewModel() {
 }
 
 class SetupInstallPAMViewModelImpl(
-    context: Context,
+    private val context: Context,
     private val updatesRepository: UpdatesRepository,
     private val navigation: SetupNavigation
 ): SetupInstallPAMViewModel() {
@@ -59,23 +62,28 @@ class SetupInstallPAMViewModelImpl(
     private val downloadManagerDescription = context.getString(R.string.download_manager_description_initial)
 
     private val downloadFolder = updatesRepository.getUpdatesFolder(context).apply {
-        //Clear the updates folder on start to remove unfinished downloads
         updatesRepository.clearUpdatesFolder(this)
     }
 
     private val downloadBus = MutableStateFlow(System.currentTimeMillis())
     private val downloadId = MutableStateFlow<Pair<Long, String>?>(null)
+    private val localApkError = MutableStateFlow<String?>(null)
+    private val localApkReadyFile = MutableStateFlow<String?>(null)
 
     private val updateState = downloadBus.mapLatest {
+        localApkError.value = null
         updatesRepository.getPAMUpdateState(true)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null).onEach {
         val release = when(it){
             is UpdateState.NotInstalled -> it.release.toRelease("", "")
             is UpdateState.UpdateAvailable -> it.release.toRelease("", "")
             else -> null
-        } ?: return@onEach
-        //Start the download with this new release
-        queueDownload(release.downloadUrl, release.fileName)
+        }
+        if (release != null) {
+            queueDownload(release.downloadUrl, release.fileName)
+        } else if (it is UpdateState.NotInstalled || it is UpdateState.UpdateAvailable) {
+            localApkError.value = "Release found on GitHub (${BuildConfig.GITHUB_OWNER}/NowPlaying), but no .apk asset was attached."
+        }
     }.flowOn(Dispatchers.IO)
 
     private val downloadProgress = combine(
@@ -94,38 +102,32 @@ class SetupInstallPAMViewModelImpl(
         }
     }.flowOn(Dispatchers.IO)
 
-    private val installComplete = downloadId.flatMapLatest {
-        flow {
-            emit(null)
-            if(it == null) return@flow
-            //Wait for next package changed event
-            context.onPackageChanged(PACKAGE_NAME_PAM, false).first()
-            emit(context.packageManager.isAppInstalled(PACKAGE_NAME_PAM))
-        }
+    private val installComplete = context.onPackageChanged(PACKAGE_NAME_PAM, true).map {
+        context.packageManager.isAppInstalled(PACKAGE_NAME_PAM)
     }
 
     override val state = combine(
         updateState,
         downloadProgress,
         downloadComplete,
-        installComplete
-    ) { update, progress, complete, installed ->
-        //If update is null, we're still loading
-        if(update == null) return@combine State.Loading
-        //If already up to date or installed, we're done
-        if(update is UpdateState.UpToDate || installed == true) return@combine State.Installed
-        //If failed to fetch, show error
-        if(update is UpdateState.FailedToFetchInitial) return@combine State.Error
-        if(update is UpdateState.FailedToFetchUpdate) return@combine State.Error
-        //If complete isn't null, emit either complete or error
+        installComplete,
+        combine(localApkError, localApkReadyFile) { err, ready -> Pair(err, ready) }
+    ) { update, progress, complete, installed, localPair ->
+        val localErr = localPair.first
+        val localReady = localPair.second
+        if (installed) return@combine State.Installed
+        if (localReady != null) return@combine State.DownloadComplete
+        if (localErr != null) return@combine State.Error(localErr)
+        if (update == null) return@combine State.Loading
+        if (update is UpdateState.UpToDate) return@combine State.Installed
+        if (update is UpdateState.FailedToFetchInitial) return@combine State.Error(update.errorMessage)
+        if (update is UpdateState.FailedToFetchUpdate) return@combine State.Error(update.errorMessage)
         complete?.let {
-            return@combine if(it) State.DownloadComplete else State.Error
+            return@combine if(it) State.DownloadComplete else State.Error("DownloadManager failed to download Now Playing APK.")
         }
-        //If progress isn't null, emit the current download progress
         progress?.let {
             return@combine State.Downloading(it)
         }
-        //If both progress and complete are null, we're awaiting the start of a download
         State.Loading
     }.stateIn(viewModelScope, SharingStarted.Eagerly, State.Loading)
 
@@ -142,6 +144,7 @@ class SetupInstallPAMViewModelImpl(
             val downloaded = c.getInt(downloadedIndex)
             if (size != -1) progress = downloaded * 100.0 / size
         }
+        c.close()
         return progress
     }
 
@@ -157,11 +160,14 @@ class SetupInstallPAMViewModelImpl(
                 success = true
             }
         }
+        cursor.close()
         return success
     }
 
     override fun restartDownload() {
         viewModelScope.launch {
+            localApkError.value = null
+            localApkReadyFile.value = null
             downloadBus.emit(System.currentTimeMillis())
         }
     }
@@ -183,7 +189,7 @@ class SetupInstallPAMViewModelImpl(
     }
 
     override fun onInstallClicked() {
-        val fileName = downloadId.value?.second ?: return
+        val fileName = localApkReadyFile.value ?: downloadId.value?.second ?: return
         val file = File(downloadFolder, fileName)
         if(!file.exists()) return
         val uri = getUriForFile(file)
@@ -195,6 +201,30 @@ class SetupInstallPAMViewModelImpl(
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }.also {
                 navigation.navigate(it)
+            }
+        }
+    }
+
+    override fun onLocalApkSelected(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val targetName = "NowPlaying-local.apk"
+                val destFile = File(downloadFolder, targetName)
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(destFile).use { output ->
+                        input.copyTo(output)
+                        output.flush()
+                    }
+                } ?: throw IllegalStateException("Cannot read selected APK file")
+                if (!destFile.exists() || destFile.length() == 0L) {
+                    throw IllegalStateException("Selected APK file is empty")
+                }
+                localApkReadyFile.value = targetName
+                withContext(Dispatchers.Main) {
+                    onInstallClicked()
+                }
+            } catch (e: Exception) {
+                localApkError.value = "Failed to load local APK: ${e.message}"
             }
         }
     }

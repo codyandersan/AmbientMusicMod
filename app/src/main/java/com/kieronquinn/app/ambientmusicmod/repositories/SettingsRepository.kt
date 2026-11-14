@@ -51,6 +51,9 @@ interface SettingsRepository {
 
     val shardsCacheHash: AmbientMusicModSetting<String>
 
+    val manualManifestUrl: AmbientMusicModSetting<String>
+    val newestKnownManifestUrl: AmbientMusicModSetting<String>
+
     //The wallpaper colour to use (< Android 12)
     val monetColor: AmbientMusicModSetting<Int>
 
@@ -235,6 +238,12 @@ class SettingsRepositoryImpl(
         private const val SHARDS_CACHE_HASH = "shards_cache_hash"
         private const val DEFAULT_SHARDS_CACHE_HASH = ""
 
+        private const val MANUAL_MANIFEST_URL = "manual_manifest_url"
+        private const val DEFAULT_MANUAL_MANIFEST_URL = ""
+
+        private const val NEWEST_KNOWN_MANIFEST_URL = "newest_known_manifest_url"
+        private val DEFAULT_NEWEST_KNOWN_MANIFEST_URL = BuildConfig.DEFAULT_MANIFEST_V3
+
         private const val KEY_MONET_COLOR = "monet_color"
     }
 
@@ -332,6 +341,14 @@ class SettingsRepositoryImpl(
 
     override val shardsCacheHash = string(
         SHARDS_CACHE_HASH, DEFAULT_SHARDS_CACHE_HASH
+    )
+
+    override val manualManifestUrl = string(
+        MANUAL_MANIFEST_URL, DEFAULT_MANUAL_MANIFEST_URL
+    )
+
+    override val newestKnownManifestUrl = string(
+        NEWEST_KNOWN_MANIFEST_URL, DEFAULT_NEWEST_KNOWN_MANIFEST_URL
     )
 
     override val monetColor = color(

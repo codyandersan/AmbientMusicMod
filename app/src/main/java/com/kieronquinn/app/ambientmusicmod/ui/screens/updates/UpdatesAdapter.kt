@@ -13,6 +13,7 @@ import com.kieronquinn.app.ambientmusicmod.databinding.ItemUpdatesPamBinding
 import com.kieronquinn.app.ambientmusicmod.databinding.ItemUpdatesShardsBinding
 import com.kieronquinn.app.ambientmusicmod.model.settings.BaseSettingsItem
 import com.kieronquinn.app.ambientmusicmod.model.settings.BaseSettingsItemType
+import com.kieronquinn.app.ambientmusicmod.repositories.ShardsCacheRepository.DatabaseDownloadState
 import com.kieronquinn.app.ambientmusicmod.repositories.ShardsRepository
 import com.kieronquinn.app.ambientmusicmod.repositories.UpdatesRepository.UpdateState
 import com.kieronquinn.app.ambientmusicmod.ui.base.settings.BaseSettingsAdapter
@@ -24,6 +25,8 @@ import com.kieronquinn.app.ambientmusicmod.utils.extensions.onClicked
 import com.kieronquinn.app.ambientmusicmod.utils.extensions.whenResumed
 import com.kieronquinn.monetcompat.extensions.views.applyMonet
 import com.kieronquinn.monetcompat.extensions.views.overrideRippleColor
+import java.util.Locale
+import kotlin.math.roundToInt
 
 class UpdatesAdapter(
     recyclerView: LifecycleAwareRecyclerView,
@@ -96,15 +99,149 @@ class UpdatesAdapter(
         val shouldShowTracks = personalisedCount + shardsState.local.trackCount > 0
         val shouldShowMultipleCountries = shouldShowTracks && shards.multipleCountriesSupported
         val remote = shardsState.remote
+        val cacheDl = shardsState.cacheDownloadState
+
+        // Always show the active manifest URL and its fallback source
+        val manifestInfoText = buildString {
+            append("Manifest [${shardsState.manifestSource.label}]:\n")
+            append(shardsState.activeManifestUrl)
+            if (!shardsState.remoteFetchError.isNullOrBlank()) {
+                append("\nRemote pointer warning: ${shardsState.remoteFetchError}")
+            }
+        }
+        updatesShardsManifestUrl.text = manifestInfoText
+        updatesShardsManifestUrl.isVisible = true
+
         when {
-            shardsState.downloadState == ShardsRepository.ShardDownloadState.DOWNLOADING -> {
+            cacheDl is DatabaseDownloadState.Preparing -> {
                 updatesShardsTrackDataContainer.isVisible = false
                 updatesShardsCountry.isVisible = false
                 updatesShardsCountryExtras.isVisible = false
                 updatesShardsUpdate.isVisible = false
                 updatesShardsViewSpace.isVisible = false
                 updatesShardsViewTracks.isVisible = false
+                updatesShardsDownloadDetails.isVisible = true
+                updatesShardsDownloadDetails.text = "Fetching manifest & preparing pack list..."
                 updatesShardsTrackDataLoading.isVisible = true
+                updatesShardsTrackDataLoading.isIndeterminate = true
+                updatesShardsStatus.setText(R.string.updates_shards_status_updating)
+                updatesShardsVersion.text = root.context.getString(
+                    R.string.updates_version, shardsState.local.versionCode.toString()
+                )
+                updatesShardsDate.text = root.context.getString(
+                    R.string.updates_shards_date, root.context.formatDateTime(shardsState.local.date)
+                )
+            }
+            cacheDl is DatabaseDownloadState.Downloading -> {
+                val pct = if (cacheDl.bytesTotal > 0) {
+                    ((cacheDl.bytesDone * 100.0) / cacheDl.bytesTotal).roundToInt().coerceIn(0, 100)
+                } else 0
+                val mbDone = cacheDl.bytesDone / (1024.0 * 1024.0)
+                val mbTotal = cacheDl.bytesTotal / (1024.0 * 1024.0)
+                val speedKbps = cacheDl.speedBytesPerSec / 1024.0
+                val etaStr = if (cacheDl.etaSeconds >= 0) "${cacheDl.etaSeconds}s" else "--"
+
+                updatesShardsTrackDataContainer.isVisible = false
+                updatesShardsCountry.isVisible = false
+                updatesShardsCountryExtras.isVisible = false
+                updatesShardsUpdate.isVisible = false
+                updatesShardsViewSpace.isVisible = false
+                updatesShardsViewTracks.isVisible = false
+                updatesShardsDownloadDetails.isVisible = true
+                updatesShardsDownloadDetails.text = if (cacheDl.isStuck) {
+                    String.format(
+                        Locale.US,
+                        "STUCK: %s\nPacks: %d/%d • %.1f / %.1f MB (%d%%)",
+                        cacheDl.stuckReason ?: "No bytes received",
+                        cacheDl.packsDone,
+                        cacheDl.packsTotal,
+                        mbDone,
+                        mbTotal,
+                        pct
+                    )
+                } else {
+                    String.format(
+                        Locale.US,
+                        "Packs: %d/%d • %.1f / %.1f MB (%d%%) • %.0f KB/s • ETA %s\nCurrent: %s",
+                        cacheDl.packsDone,
+                        cacheDl.packsTotal,
+                        mbDone,
+                        mbTotal,
+                        pct,
+                        speedKbps,
+                        etaStr,
+                        cacheDl.currentPackName
+                    )
+                }
+                updatesShardsTrackDataLoading.isVisible = true
+                updatesShardsTrackDataLoading.isIndeterminate = false
+                updatesShardsTrackDataLoading.progress = pct
+                updatesShardsStatus.text = if (cacheDl.isStuck) {
+                    "Download Stuck (${cacheDl.stuckReason})"
+                } else {
+                    root.context.getString(R.string.updates_shards_status_updating)
+                }
+                updatesShardsVersion.text = root.context.getString(
+                    R.string.updates_version, shardsState.local.versionCode.toString()
+                )
+                updatesShardsDate.text = root.context.getString(
+                    R.string.updates_shards_date, root.context.formatDateTime(shardsState.local.date)
+                )
+            }
+            cacheDl is DatabaseDownloadState.Failed -> {
+                updatesShardsTrackDataContainer.isVisible = shouldShowTracks
+                updatesShardsCountry.isVisible = true
+                updatesShardsCountryExtras.isVisible = true
+                updatesShardsUpdate.isVisible = true
+                updatesShardsUpdate.text = root.context.getString(R.string.updates_shards_retry_now)
+                updatesShardsViewSpace.isVisible = true
+                updatesShardsViewTracks.isVisible = shouldShowTracks
+                updatesShardsDownloadDetails.isVisible = true
+                updatesShardsDownloadDetails.text = "Download Error: ${cacheDl.errorSummary}\n${cacheDl.detailedReason}\nProgress saved (${cacheDl.packsDone}/${cacheDl.packsTotal} packs). Tap Retry Now to resume."
+                updatesShardsTrackDataLoading.isVisible = false
+                updatesShardsStatus.text = "Download Failed (${cacheDl.errorSummary})"
+                updatesShardsVersion.text = root.context.getString(
+                    R.string.updates_version, shardsState.local.versionCode.toString()
+                )
+                updatesShardsDate.text = root.context.getString(
+                    R.string.updates_shards_date, root.context.formatDateTime(shardsState.local.date)
+                )
+            }
+            cacheDl is DatabaseDownloadState.PausedOrBlocked -> {
+                updatesShardsTrackDataContainer.isVisible = shouldShowTracks
+                updatesShardsCountry.isVisible = true
+                updatesShardsCountryExtras.isVisible = true
+                updatesShardsUpdate.isVisible = true
+                updatesShardsUpdate.text = root.context.getString(R.string.updates_shards_retry_now)
+                updatesShardsViewSpace.isVisible = true
+                updatesShardsViewTracks.isVisible = shouldShowTracks
+                updatesShardsDownloadDetails.isVisible = true
+                updatesShardsDownloadDetails.text = "Blocked: ${cacheDl.reason}"
+                updatesShardsTrackDataLoading.isVisible = false
+                updatesShardsStatus.text = cacheDl.reason
+                updatesShardsVersion.text = root.context.getString(
+                    R.string.updates_version, shardsState.local.versionCode.toString()
+                )
+                updatesShardsDate.text = root.context.getString(
+                    R.string.updates_shards_date, root.context.formatDateTime(shardsState.local.date)
+                )
+            }
+            shardsState.downloadState == ShardsRepository.ShardDownloadState.DOWNLOADING -> {
+                updatesShardsTrackDataContainer.isVisible = false
+                updatesShardsCountry.isVisible = true
+                updatesShardsCountryExtras.isVisible = true
+                updatesShardsUpdate.isVisible = true
+                updatesShardsUpdate.text = root.context.getString(R.string.updates_shards_retry_now)
+                updatesShardsViewSpace.isVisible = false
+                updatesShardsViewTracks.isVisible = false
+                updatesShardsDownloadDetails.isVisible = true
+                updatesShardsDownloadDetails.text = if (cacheDl is DatabaseDownloadState.Completed) {
+                    "All ${cacheDl.packsTotal} packs cached in AMM! Syncing into Now Playing via Astrea..."
+                } else {
+                    "Now Playing has pending Superpacks downloads. Tap 'Force Run Download' or 'Retry Now' to download with AMM's resumable downloader."
+                }
+                updatesShardsTrackDataLoading.isVisible = true
+                updatesShardsTrackDataLoading.isIndeterminate = true
                 updatesShardsStatus.setText(R.string.updates_shards_status_updating)
                 updatesShardsVersion.text = root.context.getString(
                     R.string.updates_version, shardsState.local.versionCode.toString()
@@ -115,12 +252,15 @@ class UpdatesAdapter(
             }
             shardsState.downloadState == ShardsRepository.ShardDownloadState.WAITING_FOR_NETWORK -> {
                 updatesShardsTrackDataContainer.isVisible = false
-                updatesShardsCountry.isVisible = false
-                updatesShardsCountryExtras.isVisible = false
-                updatesShardsUpdate.isVisible = false
+                updatesShardsCountry.isVisible = true
+                updatesShardsCountryExtras.isVisible = true
+                updatesShardsUpdate.isVisible = true
+                updatesShardsUpdate.text = root.context.getString(R.string.updates_shards_retry_now)
                 updatesShardsViewSpace.isVisible = false
                 updatesShardsViewTracks.isVisible = false
-                updatesShardsTrackDataLoading.isVisible = true
+                updatesShardsDownloadDetails.isVisible = true
+                updatesShardsDownloadDetails.text = "Waiting for network (check Wi-Fi only setting or use Force Run Download)."
+                updatesShardsTrackDataLoading.isVisible = false
                 updatesShardsStatus.setText(R.string.updates_shards_status_waiting_for_wifi)
                 updatesShardsVersion.text = root.context.getString(
                     R.string.updates_version, shardsState.local.versionCode.toString()
@@ -131,12 +271,15 @@ class UpdatesAdapter(
             }
             shardsState.downloadState == ShardsRepository.ShardDownloadState.WAITING_FOR_CHARGING -> {
                 updatesShardsTrackDataContainer.isVisible = false
-                updatesShardsCountry.isVisible = false
-                updatesShardsCountryExtras.isVisible = false
-                updatesShardsUpdate.isVisible = false
+                updatesShardsCountry.isVisible = true
+                updatesShardsCountryExtras.isVisible = true
+                updatesShardsUpdate.isVisible = true
+                updatesShardsUpdate.text = root.context.getString(R.string.updates_shards_retry_now)
                 updatesShardsViewSpace.isVisible = false
                 updatesShardsViewTracks.isVisible = false
-                updatesShardsTrackDataLoading.isVisible = true
+                updatesShardsDownloadDetails.isVisible = true
+                updatesShardsDownloadDetails.text = "Waiting for charger (check Require Charging setting or use Force Run Download)."
+                updatesShardsTrackDataLoading.isVisible = false
                 updatesShardsStatus.setText(R.string.updates_shards_status_waiting_for_charging)
                 updatesShardsVersion.text = root.context.getString(
                     R.string.updates_version, shardsState.local.versionCode.toString()
@@ -160,10 +303,12 @@ class UpdatesAdapter(
                 )
                 updatesShardsDate.text = date
                 updatesShardsUpdate.isVisible = true
+                updatesShardsUpdate.setText(R.string.updates_update)
                 updatesShardsViewSpace.isVisible = true
-                updatesShardsCountry.isVisible = shouldShowTracks
-                updatesShardsCountryExtras.isVisible = shouldShowMultipleCountries
+                updatesShardsCountry.isVisible = true
+                updatesShardsCountryExtras.isVisible = true
                 updatesShardsViewTracks.isVisible = shouldShowTracks
+                updatesShardsDownloadDetails.isVisible = false
                 updatesShardsTrackDataLoading.isVisible = false
             }
             else -> {
@@ -177,9 +322,19 @@ class UpdatesAdapter(
                 )
                 updatesShardsUpdate.isVisible = false
                 updatesShardsViewSpace.isVisible = false
-                updatesShardsCountry.isVisible = shouldShowTracks
-                updatesShardsCountryExtras.isVisible = shouldShowMultipleCountries
+                updatesShardsCountry.isVisible = true
+                updatesShardsCountryExtras.isVisible = true
                 updatesShardsViewTracks.isVisible = shouldShowTracks
+                updatesShardsDownloadDetails.isVisible = cacheDl is DatabaseDownloadState.Completed
+                if (cacheDl is DatabaseDownloadState.Completed) {
+                    val mb = cacheDl.bytesTotal / (1024.0 * 1024.0)
+                    updatesShardsDownloadDetails.text = String.format(
+                        Locale.US,
+                        "Local Astrea cache ready: %d packs (%.1f MB)",
+                        cacheDl.packsTotal,
+                        mb
+                    )
+                }
                 updatesShardsTrackDataLoading.isVisible = false
             }
         }
@@ -249,13 +404,13 @@ class UpdatesAdapter(
             is UpdateState.FailedToFetchUpdate -> {
                 updatesAmmStatus.setText(R.string.updates_status_installed)
                 updatesAmmUpdate.setText(R.string.updates_install)
-                updatesAmmVersion.setText(R.string.updates_version_failed)
+                updatesAmmVersion.text = amm.updateState.errorMessage
                 updatesAmmUpdate.isVisible = false
             }
             is UpdateState.FailedToFetchInitial -> {
                 updatesAmmStatus.setText(R.string.updates_status_not_installed)
                 updatesAmmUpdate.setText(R.string.updates_install)
-                updatesAmmVersion.setText(R.string.updates_version_failed)
+                updatesAmmVersion.text = amm.updateState.errorMessage
                 updatesAmmUpdate.isVisible = false
             }
         }
@@ -299,13 +454,13 @@ class UpdatesAdapter(
             is UpdateState.FailedToFetchUpdate -> {
                 updatesPamStatus.setText(R.string.updates_status_installed)
                 updatesPamUpdate.setText(R.string.updates_install)
-                updatesPamVersion.setText(R.string.updates_version_failed)
+                updatesPamVersion.text = amm.updateState.errorMessage
                 updatesPamUpdate.isVisible = false
             }
             is UpdateState.FailedToFetchInitial -> {
                 updatesPamStatus.setText(R.string.updates_status_not_installed)
                 updatesPamUpdate.setText(R.string.updates_install)
-                updatesPamVersion.setText(R.string.updates_version_failed)
+                updatesPamVersion.text = amm.updateState.errorMessage
                 updatesPamUpdate.isVisible = false
             }
         }

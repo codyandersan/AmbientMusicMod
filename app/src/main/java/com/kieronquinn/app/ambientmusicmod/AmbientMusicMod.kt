@@ -28,6 +28,12 @@ import com.kieronquinn.app.ambientmusicmod.repositories.BedtimeRepository
 import com.kieronquinn.app.ambientmusicmod.repositories.BedtimeRepositoryImpl
 import com.kieronquinn.app.ambientmusicmod.repositories.DeviceConfigRepository
 import com.kieronquinn.app.ambientmusicmod.repositories.DeviceConfigRepositoryImpl
+import com.kieronquinn.app.ambientmusicmod.repositories.DownloadDiagnosticsRepository
+import com.kieronquinn.app.ambientmusicmod.repositories.DownloadDiagnosticsRepositoryImpl
+import com.kieronquinn.app.ambientmusicmod.repositories.DownloadLogRepository
+import com.kieronquinn.app.ambientmusicmod.repositories.DownloadLogRepositoryImpl
+import com.kieronquinn.app.ambientmusicmod.repositories.ShardsCacheRepository
+import com.kieronquinn.app.ambientmusicmod.repositories.ShardsCacheRepositoryImpl
 import com.kieronquinn.app.ambientmusicmod.repositories.EncryptedSettingsRepository
 import com.kieronquinn.app.ambientmusicmod.repositories.EncryptedSettingsRepositoryImpl
 import com.kieronquinn.app.ambientmusicmod.repositories.ExternalAccessRepository
@@ -139,7 +145,11 @@ import com.kieronquinn.app.ambientmusicmod.ui.screens.updates.UpdatesViewModelIm
 import com.kieronquinn.app.ambientmusicmod.ui.screens.updates.country.CountryPickerViewModel
 import com.kieronquinn.app.ambientmusicmod.ui.screens.updates.country.CountryPickerViewModelImpl
 import com.kieronquinn.app.ambientmusicmod.ui.screens.updates.download.UpdatesDownloadViewModel
+import com.kieronquinn.app.ambientmusicmod.ui.screens.updates.diagnostics.DownloadDiagnosticsViewModel
+import com.kieronquinn.app.ambientmusicmod.ui.screens.updates.diagnostics.DownloadDiagnosticsViewModelImpl
 import com.kieronquinn.app.ambientmusicmod.ui.screens.updates.download.UpdatesDownloadViewModelImpl
+import com.kieronquinn.app.ambientmusicmod.ui.screens.updates.logs.DownloadLogsViewModel
+import com.kieronquinn.app.ambientmusicmod.ui.screens.updates.logs.DownloadLogsViewModelImpl
 import com.kieronquinn.monetcompat.core.MonetCompat
 import dagger.hilt.android.HiltAndroidApp
 import io.noties.markwon.AbstractMarkwonPlugin
@@ -170,8 +180,11 @@ class AmbientMusicMod: Application() {
         single<RemoteSettingsRepository> { RemoteSettingsRepositoryImpl(get(), get(), get(), get(), get(), get(), get(), get()) }
         single<AccessibilityRepository> { AccessibilityRepositoryImpl(get()) }
         single<BedtimeRepository> { BedtimeRepositoryImpl(get(), get()) }
-        single<ShardsRepository> { ShardsRepositoryImpl(get(), get(), get()) }
-        single<UpdatesRepository> { UpdatesRepositoryImpl(get(), get()) }
+        single<DownloadLogRepository>(createdAtStart = true) { DownloadLogRepositoryImpl(get()) }
+        single<ShardsCacheRepository>(createdAtStart = true) { ShardsCacheRepositoryImpl(get(), get(), get(), get(), get(), get()) }
+        single<DownloadDiagnosticsRepository> { DownloadDiagnosticsRepositoryImpl(get(), get(), get(), get(), get(), get(), get()) }
+        single<ShardsRepository> { ShardsRepositoryImpl(get(), get(), get(), get(), get()) }
+        single<UpdatesRepository> { UpdatesRepositoryImpl(get(), get(), get()) }
         single<WidgetRepository>(createdAtStart = true) { WidgetRepositoryImpl(get(), get(), get(), get()) }
         single<BackupRestoreRepository> { BackupRestoreRepositoryImpl(get(), get(), get(), get(), get()) }
         single<BatteryOptimisationRepository> { BatteryOptimisationRepositoryImpl(get()) }
@@ -200,9 +213,11 @@ class AmbientMusicMod: Application() {
         viewModel<SettingsRecognitionPeriodViewModel> { SettingsRecognitionPeriodViewModelImpl(get()) }
         viewModel<SettingsRecognitionBufferViewModel> { SettingsRecognitionBufferViewModelImpl(get()) }
         viewModel<SettingsBedtimeViewModel> { SettingsBedtimeViewModelImpl(get()) }
-        viewModel<SettingsAdvancedViewModel> { SettingsAdvancedViewModelImpl(get(), get(), get(), get()) }
+        viewModel<SettingsAdvancedViewModel> { SettingsAdvancedViewModelImpl(get(), get(), get(), get(), get(), get(), get()) }
         viewModel<SettingsAdvancedGainBottomSheetViewModel> { SettingsAdvancedGainBottomSheetViewModelImpl(get(), get()) }
-        viewModel<UpdatesViewModel> { UpdatesViewModelImpl(get(), get(), get(), get(), get(), get(), get()) }
+        viewModel<UpdatesViewModel> { UpdatesViewModelImpl(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+        viewModel<DownloadDiagnosticsViewModel> { DownloadDiagnosticsViewModelImpl(get()) }
+        viewModel<DownloadLogsViewModel> { DownloadLogsViewModelImpl(get()) }
         viewModel<UpdatesDownloadViewModel> { UpdatesDownloadViewModelImpl(get(), get(), get()) }
         viewModel<CountryPickerViewModel> { CountryPickerViewModelImpl(get()) }
         viewModel<SetupContainerViewModel> { SetupContainerViewModelImpl(get(), get()) }
@@ -213,7 +228,7 @@ class AmbientMusicMod: Application() {
         viewModel<SetupInstallPAMViewModel> { SetupInstallPAMViewModelImpl(get(), get(), get()) }
         viewModel<SetupPermissionsViewModel> { SetupPermissionsViewModelImpl(get(), get()) }
         viewModel<SetupBatteryOptimisationViewModel> { SetupBatteryOptimisationViewModelImpl(get(), get()) }
-        viewModel<SetupCompleteViewModel> { SetupCompleteViewModelImpl(get(), get(), get()) }
+        viewModel<SetupCompleteViewModel> { SetupCompleteViewModelImpl(get(), get(), get(), get()) }
         viewModel<BackupRestoreViewModel> { BackupRestoreViewModelImpl(get(), get(), get()) }
         viewModel<BackupRestoreBackupViewModel> { BackupRestoreBackupViewModelImpl(get(), get()) }
         viewModel<BackupRestoreOptionsViewModel> { BackupRestoreOptionsViewModelImpl(get()) }

@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -58,18 +59,6 @@
         </activity>
 
         <activity
-            android:name=".diagnostics.DiagnosticsActivity"
-            android:exported="true"
-            android:label="AMM Diagnostics"
-            android:theme="@style/Theme.AmbientMusicMod">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
-        <activity
             android:name=".ui.activities.RecognitionModalActivity"
             android:excludeFromRecents="true"
             android:exported="true"
@@ -103,7 +92,19 @@
         </receiver>
 
         <service android:name=".service.AmbientMusicModForegroundService"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Continuous ambient music recognition and lockscreen overlay" />
+        </service>
+
+        <service android:name=".service.ShardsDownloadForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Resumable music database pack downloader and local Astrea cache sync" />
+        </service>
 
         <service
             android:name=".service.QuickSettingTileService"

@@ -11,8 +11,12 @@ import com.kieronquinn.app.ambientmusicmod.model.settings.BaseSettingsItem
 import com.kieronquinn.app.ambientmusicmod.model.settings.BaseSettingsItemType
 import com.kieronquinn.app.ambientmusicmod.model.update.Release
 import com.kieronquinn.app.ambientmusicmod.model.update.toRelease
+import com.kieronquinn.app.ambientmusicmod.repositories.BatteryOptimisationRepository
 import com.kieronquinn.app.ambientmusicmod.repositories.DeviceConfigRepository
+import com.kieronquinn.app.ambientmusicmod.repositories.JobsRepository
 import com.kieronquinn.app.ambientmusicmod.repositories.SettingsRepository
+import com.kieronquinn.app.ambientmusicmod.repositories.ShardsCacheRepository
+import com.kieronquinn.app.ambientmusicmod.repositories.ShardsCacheRepository.ImportExportState
 import com.kieronquinn.app.ambientmusicmod.repositories.ShardsRepository
 import com.kieronquinn.app.ambientmusicmod.repositories.ShardsRepository.ShardDownloadState
 import com.kieronquinn.app.ambientmusicmod.repositories.ShardsRepository.ShardsState
@@ -23,9 +27,12 @@ import com.kieronquinn.app.ambientmusicmod.utils.extensions.firstNotNull
 import com.kieronquinn.app.ambientmusicmod.utils.extensions.getNetworkCapabilities
 import com.kieronquinn.app.ambientmusicmod.utils.extensions.isCharging
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
@@ -37,6 +44,7 @@ abstract class UpdatesViewModel: ViewModel() {
 
     abstract fun reload(clearCache: Boolean = false)
     abstract val state: StateFlow<State>
+    abstract val toastBus: SharedFlow<String>
 
     abstract fun onShardsUpdateClicked(shardsState: ShardsState)
     abstract fun onShardsViewTracksClicked()
@@ -44,6 +52,14 @@ abstract class UpdatesViewModel: ViewModel() {
     abstract fun onAdditionalCountries()
     abstract fun onAMMUpdateClicked(label: String, updateState: UpdateState)
     abstract fun onPAMUpdateClicked(label: String, updateState: UpdateState)
+
+    abstract fun onForceRunDownloadClicked()
+    abstract fun onRetryDownloadNowClicked()
+    abstract fun onClearShardsCacheClicked()
+    abstract fun onDownloadDiagnosticsClicked()
+    abstract fun onDownloadLogsClicked()
+    abstract fun onImportFromUri(uri: Uri, isTreeUri: Boolean)
+    abstract fun onExportCacheToZip(uri: Uri)
 
     abstract fun onContributorsClicked()
     abstract fun onDonateClicked()
@@ -61,7 +77,9 @@ abstract class UpdatesViewModel: ViewModel() {
             val ammState: UpdateState,
             val pamState: UpdateState,
             val automaticDatabaseUpdates: Boolean,
-            val supportsMultipleCountries: Boolean
+            val supportsMultipleCountries: Boolean,
+            val cacheSummary: ShardsCacheRepository.CacheSummary,
+            val importExportState: ImportExportState? = null
         ): State() {
             override fun equals(other: Any?): Boolean {
                 return false
@@ -108,7 +126,10 @@ abstract class UpdatesViewModel: ViewModel() {
 
 class UpdatesViewModelImpl(
     private val shardsRepository: ShardsRepository,
+    private val shardsCacheRepository: ShardsCacheRepository,
     private val updatesRepository: UpdatesRepository,
+    private val batteryOptimisationRepository: BatteryOptimisationRepository,
+    private val jobsRepository: JobsRepository,
     private val rootNavigation: RootNavigation,
     private val navigation: ContainerNavigation,
     private val deviceConfigRepository: DeviceConfigRepository,
@@ -125,6 +146,10 @@ class UpdatesViewModelImpl(
     }
 
     private val reloadBus = MutableStateFlow(Pair(System.currentTimeMillis(), false))
+    private val importExportStateFlow = MutableStateFlow<ImportExportState?>(null)
+    private val _toastBus = MutableSharedFlow<String>()
+    override val toastBus = _toastBus.asSharedFlow()
+
     private val automaticDatabaseUpdates = settingsRepository.automaticMusicDatabaseUpdates
 
     private fun getAmmState(clearCache: Boolean) = flow {
@@ -157,15 +182,25 @@ class UpdatesViewModelImpl(
         }
     }
 
-    override val state = reloadBus.flatMapLatest {
+    override val state = reloadBus.flatMapLatest { reloadArgs ->
         combine(
-            getAmmState(it.second),
-            getPamState(it.second),
+            getAmmState(reloadArgs.second),
+            getPamState(reloadArgs.second),
             downloadState,
-            automaticDatabaseUpdates.asFlow()
-        ) { amm, pam, download, automaticUpdates ->
-            val shards = shardsRepository.getShardsState(it.second).firstNotNull().apply {
-                downloadState = download
+            automaticDatabaseUpdates.asFlow(),
+            shardsCacheRepository.downloadState,
+            importExportStateFlow
+        ) { args ->
+            val amm = args[0] as UpdateState
+            val pam = args[1] as UpdateState
+            val download = args[2] as ShardDownloadState?
+            val automaticUpdates = args[3] as Boolean
+            val cacheDlState = args[4] as ShardsCacheRepository.DatabaseDownloadState
+            val ieState = args[5] as ImportExportState?
+
+            val shards = shardsRepository.getShardsState(reloadArgs.second).firstNotNull().apply {
+                this.downloadState = download
+                this.cacheDownloadState = cacheDlState
             }
             val supportsMultipleCountries = when(pam) {
                 is UpdateState.UpToDate -> {
@@ -174,13 +209,22 @@ class UpdatesViewModelImpl(
                 is UpdateState.UpdateAvailable -> {
                     pam.localVersionCode >= MIN_MULTIPLE_COUNTRIES_VERSION_CODE
                 }
-                else -> false
+                else -> true
             }
             if(automaticUpdates && shards.updateAvailable && shards.remote != null){
-                //Automatically apply the update, this will trigger a download if possible
                 deviceConfigRepository.indexManifest.set(shards.remote.url)
+                shardsCacheRepository.startForegroundDownload(force = false)
             }
-            State.Loaded(shards, amm, pam, automaticUpdates, supportsMultipleCountries)
+            val cacheSummary = shardsCacheRepository.getCacheSummary()
+            State.Loaded(
+                shardsState = shards,
+                ammState = amm,
+                pamState = pam,
+                automaticDatabaseUpdates = automaticUpdates,
+                supportsMultipleCountries = supportsMultipleCountries,
+                cacheSummary = cacheSummary,
+                importExportState = ieState
+            )
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, State.Loading)
 
@@ -190,10 +234,86 @@ class UpdatesViewModelImpl(
         }
     }
 
+    private suspend fun promptBatteryExemptionIfNeeded() {
+        batteryOptimisationRepository.getDisableBatteryOptimisationsIntent()?.let { intent ->
+            navigation.navigate(intent)
+        }
+    }
+
     override fun onShardsUpdateClicked(shardsState: ShardsState) {
         viewModelScope.launch {
-            val remoteUrl = shardsState.remote?.url ?: return@launch
-            deviceConfigRepository.indexManifest.set(remoteUrl)
+            promptBatteryExemptionIfNeeded()
+            val remoteUrl = shardsState.remote?.url
+            if (remoteUrl != null && shardsState.updateAvailable) {
+                deviceConfigRepository.indexManifest.set(remoteUrl)
+            }
+            shardsCacheRepository.startForegroundDownload(force = true)
+            jobsRepository.forceExpediteJobs()
+        }
+    }
+
+    override fun onForceRunDownloadClicked() {
+        viewModelScope.launch {
+            promptBatteryExemptionIfNeeded()
+            shardsCacheRepository.startForegroundDownload(force = true)
+            jobsRepository.forceExpediteJobs()
+            _toastBus.emit("Started resumable database download & expedited Now Playing jobs")
+        }
+    }
+
+    override fun onRetryDownloadNowClicked() {
+        viewModelScope.launch {
+            promptBatteryExemptionIfNeeded()
+            shardsCacheRepository.startForegroundDownload(force = false)
+            jobsRepository.forceExpediteJobs()
+            _toastBus.emit("Retrying database download...")
+        }
+    }
+
+    override fun onClearShardsCacheClicked() {
+        viewModelScope.launch {
+            val ok = shardsCacheRepository.clearCache()
+            reload(false)
+            _toastBus.emit(if (ok) "Cleared local database cache" else "Cache cleared with warnings")
+        }
+    }
+
+    override fun onDownloadDiagnosticsClicked() {
+        viewModelScope.launch {
+            navigation.navigate(UpdatesFragmentDirections.actionUpdatesFragmentToDownloadDiagnosticsFragment())
+        }
+    }
+
+    override fun onDownloadLogsClicked() {
+        viewModelScope.launch {
+            navigation.navigate(UpdatesFragmentDirections.actionUpdatesFragmentToDownloadLogsFragment())
+        }
+    }
+
+    override fun onImportFromUri(uri: Uri, isTreeUri: Boolean) {
+        viewModelScope.launch {
+            shardsCacheRepository.importFromUri(uri, isTreeUri).collect { st ->
+                importExportStateFlow.value = st
+                if (st is ImportExportState.Completed) {
+                    _toastBus.emit(st.summaryMessage)
+                    reload(false)
+                } else if (st is ImportExportState.Failed) {
+                    _toastBus.emit(st.errorMessage)
+                }
+            }
+        }
+    }
+
+    override fun onExportCacheToZip(uri: Uri) {
+        viewModelScope.launch {
+            shardsCacheRepository.exportCacheToZip(uri).collect { st ->
+                importExportStateFlow.value = st
+                if (st is ImportExportState.Completed) {
+                    _toastBus.emit(st.summaryMessage)
+                } else if (st is ImportExportState.Failed) {
+                    _toastBus.emit(st.errorMessage)
+                }
+            }
         }
     }
 

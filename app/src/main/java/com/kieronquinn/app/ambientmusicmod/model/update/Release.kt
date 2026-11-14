@@ -16,24 +16,25 @@ data class Release(
     val body: String
 ) : Parcelable
 
-private const val CONTENT_TYPE_APK = "application/vnd.android.package-archive"
-
-/**
- *  GitHub derives an asset's content_type from the upload request, so an APK can legitimately
- *  come back as octet-stream/zip. Accept the APK type, or any asset named *.apk.
- */
-fun GitHubRelease.Asset.isApk(): Boolean {
-    return contentType == CONTENT_TYPE_APK || fileName?.endsWith(".apk", ignoreCase = true) == true
-}
+private val ACCEPTED_CONTENT_TYPES = setOf(
+    "application/vnd.android.package-archive",
+    "application/octet-stream",
+    "application/zip",
+    "binary/octet-stream"
+)
 
 fun GitHubRelease.toRelease(title: String, localVersion: String?): Release? {
-    val tag = tag ?: return null
-    //GitHub omits release name/body when empty, so fall back instead of rejecting the release
-    val versionName = versionName?.takeIf { it.isNotBlank() } ?: tag
-    val asset = assets?.firstOrNull { it.isApk() } ?: return null
+    val resolvedTag = tag ?: return null
+    val resolvedVersionName = versionName?.takeIf { it.isNotBlank() } ?: resolvedTag
+    val asset = assets?.firstOrNull { candidate ->
+        val isApkName = candidate.fileName?.endsWith(".apk", ignoreCase = true) == true
+        val isApkContentType = candidate.contentType?.lowercase() == "application/vnd.android.package-archive"
+        val isGenericTypeWithApkExt = isApkName && (candidate.contentType == null || ACCEPTED_CONTENT_TYPES.contains(candidate.contentType.lowercase()))
+        isApkContentType || isGenericTypeWithApkExt || isApkName
+    } ?: return null
     val downloadUrl = asset.downloadUrl ?: return null
     val fileName = asset.fileName ?: return null
-    val gitHubUrl = gitHubUrl ?: return null
+    val gitHubUrl = gitHubUrl ?: "https://github.com"
     val body = body ?: ""
-    return Release(title, tag, versionName, localVersion, downloadUrl, fileName, gitHubUrl, body)
+    return Release(title, resolvedTag, resolvedVersionName, localVersion, downloadUrl, fileName, gitHubUrl, body)
 }

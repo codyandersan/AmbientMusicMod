@@ -344,12 +344,12 @@
 
     <string name="settings_advanced_superpacks_require_wifi">Database Downloads on Wi-Fi only</string>
     <string name="settings_advanced_superpacks_require_wifi_short">Wi-Fi only</string>
-    <string name="settings_advanced_superpacks_require_wifi_content">Require <b>unmetered</b> Wi-Fi to download updates to the Music Database. You may need to reboot after changing this setting for it to take effect.</string>
+    <string name="settings_advanced_superpacks_require_wifi_content">Require <b>unmetered</b> Wi-Fi to download updates to the Music Database (default: off so mobile data &amp; hotspots work out of the box).</string>
     <string name="settings_advanced_superpacks_require_wifi_content_short">Require <b>unmetered</b> Wi-Fi to download content.</string>
 
     <string name="settings_advanced_superpacks_require_charging">Require Charging for Database Downloads</string>
     <string name="settings_advanced_superpacks_require_charging_short">Require Charging</string>
-    <string name="settings_advanced_superpacks_require_charging_content">Require the device be charging to download updates to the Music Database. You may need to reboot after changing this setting for it to take effect.</string>
+    <string name="settings_advanced_superpacks_require_charging_content">Require the device be charging to download updates to the Music Database (default: off so downloads start immediately on battery).</string>
     <string name="settings_advanced_superpacks_require_charging_content_short">Require the device be charging to download content.</string>
 
     <string name="settings_advanced_clear_album_art_cache">Clear Album Art Cache</string>
@@ -608,4 +608,67 @@
     <string name="quick_settings_tile_enabled">Enabled</string>
     <string name="quick_settings_tile_disabled">Disabled</string>
 
+    <!-- Phase 0-5 Additions: Diagnostics, Resumable Downloader, Cache, SAF Import/Export, Setup Local APK -->
+    <string name="notification_shards_download_title">Music Database Download</string>
+    <string name="notification_shards_download_complete_title">Music Database Cached</string>
+    <string name="notification_shards_download_failed_title">Music Database Download Error</string>
+    <string name="notification_shards_download_paused_title">Music Database Download Paused</string>
+
+    <string name="updates_shards_retry_now">Retry Now</string>
+    <string name="updates_database_actions_header">Music Database &amp; Cache Controls</string>
+    <string name="updates_app_updates_header">Application Updates</string>
+
+    <string name="updates_force_run_download_title">Force Run Download</string>
+    <string name="updates_force_run_download_subtitle">Immediately download required country packs in AMM (ignoring Wi-Fi/charging limits) and force Now Playing to sync from cache</string>
+
+    <string name="updates_retry_download_now_title">Retry Now</string>
+    <string name="updates_retry_download_now_subtitle">Resume any partial (.part) downloads and expedite pending Now Playing Superpacks jobs</string>
+
+    <string name="updates_import_database_title">Import Database from Storage</string>
+    <string name="updates_import_database_subtitle">Select a folder or ZIP containing downloaded shard packs (verified by manifest name &amp; exact byte size)</string>
+    <string name="updates_import_option_folder">Select Folder containing packs</string>
+    <string name="updates_import_option_zip">Select ZIP archive or single pack file</string>
+    <string name="updates_import_option_where_to_get">Where to get the database files?</string>
+
+    <string name="updates_export_cache_title">Export Cache as ZIP</string>
+    <string name="updates_export_cache_subtitle">Save all verified packs in the Astrea cache to a ZIP file for reuse on another device or offline restore</string>
+
+    <string name="updates_where_to_get_files_title">Where to Get Database Files</string>
+    <string name="updates_where_to_get_files_subtitle">How to manually download the core shard and country packs from the manifest JSON</string>
+    <string name="updates_where_to_get_files_explanation">Every music database pack URL is listed in the active Superpacks manifest JSON:\n\n%1$s\n\nHow to download manually:\n1. Open the manifest URL above in any browser or download manager.\n2. Find the core pack (extra_type: \"core\", URL ending in /tree_core_shard, ~54 MB) and the 27 shard packs matching your country code in extra_country_codes (e.g. \"in\" or \"us,xa\", ~230–300 MB per country).\n3. Keep each file's original filename (the last path segment of its download URL, which equals its pack name).\n4. Place all downloaded files into a folder or ZIP archive, then tap \"Import Database from Storage\" to verify their exact byte sizes and import them into the local Astrea cache.</string>
+
+    <string name="updates_clear_cache_title">Clear Cache</string>
+
+    <string name="updates_download_diagnostics_title">Download Diagnostics</string>
+    <string name="updates_download_diagnostics_subtitle">Test DNS &amp; HTTPS to GitHub/Google Storage, manifest parsing, HTTP 206 Range support, PAM bind state, and Superpacks jobs</string>
+
+    <string name="updates_download_logs_title">Download &amp; Astrea Logs</string>
+    <string name="updates_download_logs_subtitle">View, copy, or share detailed HTTP/gRPC request, Range, and cache logs</string>
+
+    <string name="diagnostics_running_title">Running Diagnostics…</string>
+    <string name="diagnostics_rerun_title">Run Diagnostics Again</string>
+    <string name="diagnostics_rerun_subtitle">Re-test DNS, HTTPS, manifest parsing, HTTP Range requests, PAM bind state, and Superpacks jobs</string>
+    <string name="diagnostics_copy_report_title">Copy &amp; Share Diagnostics Report</string>
+    <string name="diagnostics_copy_report_subtitle">Copy full diagnostic results to clipboard and open share sheet</string>
+    <string name="diagnostics_results_header">Diagnostic Checks (Tap any item to copy)</string>
+    <string name="diagnostics_copied_toast">Copied to clipboard</string>
+
+    <string name="download_logs_refresh_title">Refresh Logs</string>
+    <string name="download_logs_refresh_subtitle">%1$d log entries recorded (tap to reload)</string>
+    <string name="download_logs_copy_share_title">Copy &amp; Share Logs</string>
+    <string name="download_logs_copy_share_subtitle">Copy all download &amp; Astrea log lines or share to another app</string>
+    <string name="download_logs_clear_title">Clear Logs</string>
+    <string name="download_logs_clear_subtitle">Delete stored download diagnostic log entries</string>
+    <string name="download_logs_cleared_toast">Download logs cleared</string>
+    <string name="download_logs_entries_header">Recent Log Entries (Newest First)</string>
+    <string name="download_logs_empty_title">No Log Entries Yet</string>
+    <string name="download_logs_empty_subtitle">Start a database download or run Download Diagnostics to record events</string>
+
+    <string name="settings_advanced_manual_manifest_title">Manual Manifest URL</string>
+    <string name="settings_advanced_manual_manifest_dialog_message">Enter a custom HTTPS manifest.json URL (or &lt;version&gt;:https://.../manifest.json) to override the remote pointer, or tap Reset to use the automatic fallback chain (Remote Pointer → Newest Known Working → Pinned v3099).</string>
+
+    <string name="setup_install_pam_from_local_apk">Install Now Playing from Local APK File</string>
+    <string name="setup_install_pam_error_subtitle_detailed">Failed to download Now Playing APK:\n%1$s\n\nYou can retry or select a local Now Playing APK file from storage below.</string>
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
 </resources>

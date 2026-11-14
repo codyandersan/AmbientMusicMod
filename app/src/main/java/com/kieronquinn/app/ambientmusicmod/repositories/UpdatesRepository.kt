@@ -7,16 +7,15 @@ import com.kieronquinn.app.ambientmusicmod.BuildConfig
 import com.kieronquinn.app.ambientmusicmod.PACKAGE_NAME_PAM
 import com.kieronquinn.app.ambientmusicmod.model.github.GitHubRelease
 import com.kieronquinn.app.ambientmusicmod.model.update.CachedGitHubRelease
-import com.kieronquinn.app.ambientmusicmod.model.update.isApk
 import com.kieronquinn.app.ambientmusicmod.providers.GitHubProvider
 import com.kieronquinn.app.ambientmusicmod.repositories.UpdatesRepository.UpdateState
-import com.kieronquinn.app.ambientmusicmod.utils.VersionUtils
 import com.kieronquinn.app.ambientmusicmod.utils.extensions.getPackageInfoCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.time.Duration
 import java.time.Instant
 
@@ -44,8 +43,12 @@ interface UpdatesRepository {
             val remoteVersion: String,
             val release: GitHubRelease
         ): UpdateState()
-        object FailedToFetchUpdate: UpdateState()
-        object FailedToFetchInitial: UpdateState()
+        data class FailedToFetchUpdate(
+            val errorMessage: String = "Failed to connect to GitHub releases"
+        ): UpdateState()
+        data class FailedToFetchInitial(
+            val errorMessage: String = "Failed to fetch release from GitHub"
+        ): UpdateState()
         data class UpToDate(
             val localVersion: String,
             val localVersionCode: Long
@@ -62,10 +65,12 @@ interface UpdatesRepository {
 
 class UpdatesRepositoryImpl(
     private val gson: Gson,
-    context: Context
+    context: Context,
+    private val downloadLogRepository: DownloadLogRepository? = null
 ): UpdatesRepository {
 
     companion object {
+        private const val TAG = "UpdatesRepo"
         private val CACHE_TIMEOUT = Duration.ofHours(12).toMillis()
         private const val MIN_SUMMARY_AND_EDIT_CODE = 120L
     }
@@ -108,6 +113,7 @@ class UpdatesRepositoryImpl(
             localAsiInfo?.longVersionCode,
             pamProvider,
             "pam",
+            "NowPlaying",
             ignoreCache
         )
     }
@@ -120,6 +126,7 @@ class UpdatesRepositoryImpl(
             BuildConfig.VERSION_CODE.toLong(),
             ammProvider,
             "amm",
+            "AmbientMusicMod",
             ignoreCache
         )
     }
@@ -149,17 +156,25 @@ class UpdatesRepositoryImpl(
         localVersion: String?,
         localVersionCode: Long?,
         provider: GitHubProvider,
-        repository: String,
+        repositoryKey: String,
+        repoName: String,
         ignoreCache: Boolean = false
     ): UpdateState {
-        val cachedRelease = if(ignoreCache) null else getUpdateCache(repository)
-        val remoteRelease = cachedRelease ?: provider.getCurrentRelease()?.also {
-            it.cacheRelease(repository)
+        val cachedRelease = if(ignoreCache) null else getUpdateCache(repositoryKey)
+        var errorReason: String? = null
+        val remoteRelease = cachedRelease ?: run {
+            val res = provider.fetchCurrentReleaseResult(repoName)
+            res.getOrNull()?.also {
+                it.cacheRelease(repositoryKey)
+            } ?: run {
+                errorReason = res.exceptionOrNull()?.message ?: "No releases found in ${BuildConfig.GITHUB_OWNER}/$repoName"
+                null
+            }
         }
         val remoteVersion = remoteRelease?.tag
         return when {
             localVersion != null && localVersionCode != null && remoteRelease != null &&
-                    remoteVersion != null && !VersionUtils.isSameVersion(remoteVersion, localVersion) -> {
+                    remoteVersion != null && !versionsMatch(localVersion, remoteVersion) -> {
                 UpdateState.UpdateAvailable(
                     localVersion,
                     localVersionCode,
@@ -167,28 +182,54 @@ class UpdatesRepositoryImpl(
                     remoteRelease
                 )
             }
-            localVersion == null && remoteRelease !=  null && remoteVersion != null -> {
+            localVersion == null && remoteRelease != null && remoteVersion != null -> {
                 UpdateState.NotInstalled(remoteVersion, remoteRelease)
             }
             localVersion != null && localVersionCode != null && remoteVersion != null -> {
                 UpdateState.UpToDate(localVersion, localVersionCode)
             }
             remoteVersion == null && localVersion != null -> {
-                UpdateState.FailedToFetchUpdate
+                UpdateState.FailedToFetchUpdate(
+                    errorReason ?: "Installed v$localVersion (no remote release found on ${BuildConfig.GITHUB_OWNER}/$repoName)"
+                )
             }
-            else -> UpdateState.FailedToFetchInitial
+            else -> UpdateState.FailedToFetchInitial(
+                errorReason ?: "Could not fetch ${BuildConfig.GITHUB_OWNER}/$repoName releases"
+            )
         }
     }
 
-    private fun GitHubProvider.getCurrentRelease(): GitHubRelease? {
-        val releases = try {
-            getReleases().execute().body()
-        }catch (e: Exception){
-            android.util.Log.w("AMMUpdates", "Failed to fetch releases from GitHub", e)
-            null
-        } ?: return null
-        //Newest release that actually carries an APK, so helper releases (eg base-assets) are skipped
-        return releases.firstOrNull { release -> release.assets?.any { it.isApk() } == true }
+    /**
+     * Normalizes tags so both "1.3.5" and "v1.3.5" compare equal to versionName "1.3.5".
+     */
+    private fun versionsMatch(localVersion: String, remoteTag: String): Boolean {
+        val cleanLocal = localVersion.trim().removePrefix("v").removePrefix("V")
+        val cleanRemote = remoteTag.trim().removePrefix("v").removePrefix("V")
+        return cleanLocal == cleanRemote
+    }
+
+    private fun GitHubProvider.fetchCurrentReleaseResult(repoName: String): Result<GitHubRelease> {
+        return try {
+            val response = getReleases().execute()
+            if (!response.isSuccessful) {
+                val msg = "HTTP ${response.code()} ${response.message()} from ${BuildConfig.GITHUB_OWNER}/$repoName/releases"
+                downloadLogRepository?.logWarn(TAG, msg)
+                return Result.failure(IOException(msg))
+            }
+            val releases = response.body()
+            val first = releases?.firstOrNull()
+            if (first == null) {
+                val msg = "No releases published in ${BuildConfig.GITHUB_OWNER}/$repoName"
+                downloadLogRepository?.logWarn(TAG, msg)
+                Result.failure(IOException(msg))
+            } else {
+                Result.success(first)
+            }
+        } catch (e: Exception) {
+            val msg = "${e.javaClass.simpleName}: ${e.message}"
+            downloadLogRepository?.logError(TAG, "Failed fetching releases for $repoName: $msg", e)
+            Result.failure(IOException(msg, e))
+        }
     }
 
     private fun getUpdateCache(repository: String): GitHubRelease? {

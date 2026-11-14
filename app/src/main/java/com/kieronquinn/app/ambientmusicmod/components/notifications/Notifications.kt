@@ -38,7 +38,7 @@ enum class NotificationChannel(
     ),
     UPDATES (
         "updates",
-        NotificationManager.IMPORTANCE_HIGH,
+        NotificationManager.IMPORTANCE_DEFAULT,
         R.string.notification_channel_updates_title,
         R.string.notification_channel_updates_subtitle
     ),
@@ -68,5 +68,6 @@ enum class NotificationId {
     UPDATES,
     ERRORS,
     WARNINGS,
-    BACKUP
+    BACKUP,
+    SHARDS_DOWNLOAD
 }

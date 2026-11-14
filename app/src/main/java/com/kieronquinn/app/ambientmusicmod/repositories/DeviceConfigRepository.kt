@@ -55,8 +55,8 @@ class DeviceConfigRepositoryImpl(
         private const val DEFAULT_CACHE_SHARD_ENABLED = true
 
         private const val INDEX_MANIFEST = "NowPlaying__ambient_music_index_manifest_17_09_02"
-        private const val DEFAULT_INDEX_MANIFEST = BuildConfig.DEFAULT_MANIFEST
-        private const val DEFAULT_INDEX_MANIFEST_V3 = BuildConfig.DEFAULT_MANIFEST_V3
+        const val DEFAULT_INDEX_MANIFEST = BuildConfig.DEFAULT_MANIFEST
+        const val DEFAULT_INDEX_MANIFEST_V3 = BuildConfig.DEFAULT_MANIFEST_V3
 
         private const val RUN_ON_SMALL_CORES = "NowPlaying__ambient_music_run_on_small_cores"
         private const val DEFAULT_RUN_ON_SMALL_CORES = false
@@ -64,6 +64,7 @@ class DeviceConfigRepositoryImpl(
         private const val ON_DEMAND_VIBRATE_ENABLED = "NowPlaying__on_demand_vibration_enabled"
         private const val DEFAULT_ON_DEMAND_VIBRATE_ENABLED = true
 
+        // Phase 4: Default both superpacksRequireCharging and superpacksRequireWiFi to false
         private const val SUPERPACKS_REQUIRE_CHARGING = "Superpacks__require_charging_by_default"
         private const val DEFAULT_SUPERPACKS_REQUIRE_CHARGING = false
 

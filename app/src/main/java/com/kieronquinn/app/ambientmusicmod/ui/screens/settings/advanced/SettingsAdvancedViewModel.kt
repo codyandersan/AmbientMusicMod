@@ -9,6 +9,9 @@ import com.kieronquinn.app.ambientmusicmod.components.navigation.ContainerNaviga
 import com.kieronquinn.app.ambientmusicmod.repositories.AmbientServiceRepository
 import com.kieronquinn.app.ambientmusicmod.repositories.DeviceConfigRepository
 import com.kieronquinn.app.ambientmusicmod.repositories.JobsRepository
+import com.kieronquinn.app.ambientmusicmod.repositories.SettingsRepository
+import com.kieronquinn.app.ambientmusicmod.repositories.ShardsCacheRepository
+import com.kieronquinn.app.ambientmusicmod.repositories.ShardsRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -28,6 +31,7 @@ abstract class SettingsAdvancedViewModel: ViewModel() {
     abstract fun onEnableLoggingChanged(enabled: Boolean)
     abstract fun onExternalAccessClicked()
     abstract fun onPokeJobSchedulerClicked(context: Context)
+    abstract fun onManualManifestUrlSubmitted(context: Context, urlOrEmpty: String)
 
     sealed class State {
         object Loading: State()
@@ -36,7 +40,9 @@ abstract class SettingsAdvancedViewModel: ViewModel() {
             val runOnSmallCores: Boolean,
             val superpacksRequireWifi: Boolean,
             val superpacksRequireCharging: Boolean,
-            val enableLogging: Boolean
+            val enableLogging: Boolean,
+            val manualManifestUrl: String,
+            val activeIndexManifest: String
         ): State()
     }
 
@@ -44,6 +50,9 @@ abstract class SettingsAdvancedViewModel: ViewModel() {
 
 class SettingsAdvancedViewModelImpl(
     private val deviceConfigRepository: DeviceConfigRepository,
+    private val settingsRepository: SettingsRepository,
+    private val shardsRepository: ShardsRepository,
+    private val shardsCacheRepository: ShardsCacheRepository,
     private val serviceRepository: AmbientServiceRepository,
     private val jobsRepository: JobsRepository,
     private val navigation: ContainerNavigation
@@ -54,6 +63,8 @@ class SettingsAdvancedViewModelImpl(
     private val superpacksRequireCharging = deviceConfigRepository.superpacksRequireCharging
     private val enableLogging = deviceConfigRepository.enableLogging
     private val alternativeEncoding = deviceConfigRepository.alternativeEncoding
+    private val manualManifestUrl = settingsRepository.manualManifestUrl
+    private val activeIndexManifest = deviceConfigRepository.indexManifest
 
     private val superpacksConfig = combine(
         superpacksRequireWifi.asFlow(),
@@ -62,13 +73,29 @@ class SettingsAdvancedViewModelImpl(
         Pair(wifi, charging)
     }
 
+    private val manifestConfig = combine(
+        manualManifestUrl.asFlow(),
+        activeIndexManifest.asFlow()
+    ) { manual, active ->
+        Pair(manual, active)
+    }
+
     override val state = combine(
         runOnSmallCores.asFlow(),
         superpacksConfig,
         enableLogging.asFlow(),
         alternativeEncoding.asFlow(),
-    ) { small, superpacks, logging, alternative ->
-        State.Loaded(alternative, small, superpacks.first, superpacks.second, logging)
+        manifestConfig
+    ) { small, superpacks, logging, alternative, manifests ->
+        State.Loaded(
+            alternativeEncoding = alternative,
+            runOnSmallCores = small,
+            superpacksRequireWifi = superpacks.first,
+            superpacksRequireCharging = superpacks.second,
+            enableLogging = logging,
+            manualManifestUrl = manifests.first,
+            activeIndexManifest = manifests.second
+        )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, State.Loading)
 
     override fun onGainClicked() {
@@ -126,8 +153,30 @@ class SettingsAdvancedViewModelImpl(
 
     override fun onPokeJobSchedulerClicked(context: Context) {
         viewModelScope.launch {
+            shardsCacheRepository.startForegroundDownload(force = true)
             jobsRepository.forceExpediteJobs()
             Toast.makeText(context, R.string.settings_advanced_poke_jobscheduler_toast, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    override fun onManualManifestUrlSubmitted(context: Context, urlOrEmpty: String) {
+        viewModelScope.launch {
+            val result = shardsRepository.setManualManifestOverride(urlOrEmpty)
+            if (result.isSuccess) {
+                val applied = result.getOrNull() ?: ""
+                val msg = if (urlOrEmpty.isBlank()) {
+                    "Reset manifest URL to automatic ($applied)"
+                } else {
+                    "Set manual manifest URL to $applied"
+                }
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(
+                    context,
+                    result.exceptionOrNull()?.message ?: "Invalid manifest URL",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 

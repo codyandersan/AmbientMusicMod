@@ -25,7 +25,7 @@
                 android:id="@+id/setup_install_pam_error_icon"
                 android:layout_width="64dp"
                 android:layout_height="64dp"
-                android:layout_marginTop="150dp"
+                android:layout_marginTop="120dp"
                 android:src="@drawable/ic_error_circle"
                 app:layout_constraintBottom_toTopOf="@id/setup_install_pam_error_label"
                 app:layout_constraintEnd_toEndOf="parent"
@@ -80,6 +80,19 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@id/setup_install_pam_error_label_sub" />
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/setup_install_pam_local_apk"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/margin_8"
+                android:text="@string/setup_install_pam_from_local_apk"
+                android:textAppearance="@style/TextAppearance.AppCompat.Small.AmbientMusicMod.Medium"
+                app:icon="@drawable/ic_setup_install_pam_install"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/setup_install_pam_retry" />
+
             <androidx.constraintlayout.widget.Group
                 android:id="@+id/setup_install_pam_error"
                 android:layout_width="0dp"
@@ -92,7 +105,7 @@
                 android:id="@+id/setup_install_pam_install_icon"
                 android:layout_width="64dp"
                 android:layout_height="64dp"
-                android:layout_marginTop="150dp"
+                android:layout_marginTop="120dp"
                 android:src="@drawable/ic_setup_install_pam_download_complete"
                 app:layout_constraintBottom_toTopOf="@id/setup_install_pam_install_label"
                 app:layout_constraintEnd_toEndOf="parent"
@@ -199,6 +212,5 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:constraint_referenced_ids="setup_install_pam_loading_label,setup_install_pam_loading_subtitle,setup_install_pam_loading_progress" />
-
 
 </androidx.constraintlayout.widget.ConstraintLayout>

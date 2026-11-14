@@ -1,46 +1,50 @@
-name: Build and release Ambient Music Mod
+name: Build & Release Ambient Music Mod
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish non-draft GitHub Release (tagged with versionName)'
+        required: false
+        default: 'true'
+        type: boolean
   push:
     tags:
-      - '[0-9]*'
+      - '[0-9]+.[0-9]+*'
+      - 'v[0-9]+.[0-9]+*'
 
 permissions:
   contents: write
 
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   build:
+    name: Build Signed Release APK
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    env:
-      BUILD_TOOLS: 34.0.0
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: >-
-            platform-tools
-            platforms;android-32
-            platforms;android-33
-            platforms;android-35
-            build-tools;34.0.0
-
-      - name: Set up Gradle (wrapper pins Gradle 8.10; AGP 8.5.2 is pinned in build.gradle)
+      - name: Setup Gradle 8.10
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10'
 
-      - name: Check secrets are present
+      - name: Setup Android SDK (API 35, Build-Tools 35.0.0)
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android SDK components
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "platforms;android-34" "platforms;android-33" "platforms;android-32" "build-tools;35.0.0"
+
+      - name: Decode Keystore & Configure local.properties
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -48,88 +52,81 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          for v in KEYSTORE_B64 KEY_ALIAS STORE_PASSWORD KEY_PASSWORD; do
-            if [ -z "${!v}" ]; then
-              echo "::error::Repository secret $v is missing or empty (Settings > Secrets and variables > Actions)"
-              exit 1
-            fi
-          done
-
-      - name: Read versionName and check tag
-        id: ver
-        run: |
-          set -euo pipefail
-          VERSION=$(grep -E "^def tagName *= *'" app/build.gradle | sed -E "s/.*'([^']+)'.*/\1/")
-          if [ -z "$VERSION" ]; then
-            echo "::error::Could not read tagName from app/build.gradle"; exit 1
-          fi
-          echo "versionName=$VERSION"
-          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "$VERSION" ]; then
-            echo "::error::Tag '${GITHUB_REF_NAME}' must equal versionName '$VERSION', otherwise the app will think an update is always pending"
+          if [ -z "${KEYSTORE_B64:-}" ] || [ -z "${KEY_ALIAS:-}" ] || [ -z "${STORE_PASSWORD:-}" ] || [ -z "${KEY_PASSWORD:-}" ]; then
+            echo "::error::Missing required signing secrets (KEYSTORE_B64, KEY_ALIAS, STORE_PASSWORD, KEY_PASSWORD). Please configure all four in Repository Secrets."
             exit 1
           fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "$KEYSTORE_B64" | tr -d '\r\n ' | base64 -d > "$RUNNER_TEMP/release.keystore"
+          if [ ! -s "$RUNNER_TEMP/release.keystore" ]; then
+            echo "::error::Decoded keystore is empty or invalid base64!"
+            exit 1
+          fi
+          cat <<EOF_PROPS > local.properties
+          sdk.dir=$ANDROID_HOME
+          storeFile=$RUNNER_TEMP/release.keystore
+          keyAlias=$KEY_ALIAS
+          storePassword=$STORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          EOF_PROPS
+          echo "Configured local.properties with keystore at $RUNNER_TEMP/release.keystore"
 
-      - name: Decode keystore and write local.properties
-        env:
-          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      - name: Extract versionName from app/build.gradle
+        id: version
         run: |
           set -euo pipefail
-          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
-          test -s "$RUNNER_TEMP/release.jks" || { echo "::error::Decoded keystore is empty; KEYSTORE_B64 is not valid base64"; exit 1; }
-          keytool -list -keystore "$RUNNER_TEMP/release.jks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null \
-            || { echo "::error::Keystore cannot be opened with STORE_PASSWORD/KEY_ALIAS"; exit 1; }
-          {
-            echo "sdk.dir=$ANDROID_HOME"
-            echo "storeFile=$RUNNER_TEMP/release.jks"
-            echo "keyAlias=$KEY_ALIAS"
-            echo "storePassword=$STORE_PASSWORD"
-            echo "keyPassword=$KEY_PASSWORD"
-          } > local.properties
+          VERSION_NAME=$(grep -E "def tagName\s*=" app/build.gradle | head -n1 | sed -E "s/.*['\"]([^'\"]+)['\"].*/\1/")
+          if [ -z "$VERSION_NAME" ]; then
+            echo "::error::Failed to parse tagName (versionName) from app/build.gradle"
+            exit 1
+          fi
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "Resolved AMM versionName / tag: $VERSION_NAME"
 
-      - name: Make gradlew executable (executable bit is lost when a repo is uploaded from a zip)
-        run: chmod +x gradlew
+      - name: Run Unit Tests & Assemble Release APK
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest assembleRelease --stacktrace --no-daemon
 
-      - name: Unit tests
-        run: ./gradlew :app:testReleaseUnitTest --stacktrace
-
-      - name: Build signed release APK
-        run: ./gradlew assembleRelease --stacktrace -PgithubOwner=${{ github.repository_owner }}
-
-      - name: Locate and verify APK
+      - name: Verify Signed APK & Rename
         id: apk
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
         run: |
           set -euo pipefail
-          APK=$(find app/build/outputs/apk/release -name '*.apk' | head -n1)
-          if [ -z "$APK" ]; then echo "::error::No release APK was produced"; exit 1; fi
-          OUT="AmbientMusicMod-${{ steps.ver.outputs.version }}.apk"
-          cp "$APK" "$OUT"
-          "$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$OUT" | tee verify.txt
-          grep -q "Verified using v2 scheme.*true\|Verified using v3 scheme.*true" verify.txt \
-            || { echo "::error::APK is not signed (v2/v3)"; exit 1; }
-          echo "::notice::Signer SHA-256 (must be IDENTICAL to the Now Playing APK): $(grep -m1 'certificate SHA-256 digest' verify.txt)"
-          echo "file=$OUT" >> "$GITHUB_OUTPUT"
+          RAW_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$RAW_APK" ] || [ ! -f "$RAW_APK" ]; then
+            echo "::error::Release APK was not found under app/build/outputs/apk/release/"
+            exit 1
+          fi
+          OUT_APK="app/build/outputs/apk/release/AmbientMusicMod-${VERSION_NAME}.apk"
+          cp "$RAW_APK" "$OUT_APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$OUT_APK"
+          echo "apk_path=$OUT_APK" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload Signed APK Artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: AmbientMusicMod-${{ steps.ver.outputs.version }}
-          path: ${{ steps.apk.outputs.file }}
+          name: AmbientMusicMod-${{ steps.version.outputs.version_name }}
+          path: ${{ steps.apk.outputs.apk_path }}
           if-no-files-found: error
 
-      - name: Publish GitHub Release (not a draft, tag = versionName)
+      - name: Publish Non-Draft GitHub Release
+        if: github.event_name == 'push' || github.event.inputs.publish_release != 'false'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          APK_PATH: ${{ steps.apk.outputs.apk_path }}
         run: |
           set -euo pipefail
-          V="${{ steps.ver.outputs.version }}"
-          F="${{ steps.apk.outputs.file }}"
-          if gh release view "$V" >/dev/null 2>&1; then
-            gh release upload "$V" "$F" --clobber
-            gh release edit "$V" --draft=false --latest
+          TAG="$VERSION_NAME"
+          echo "Publishing non-draft GitHub Release with tag '$TAG' and asset '$APK_PATH'..."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_PATH#AmbientMusicMod-${VERSION_NAME}.apk" --clobber
+            gh release edit "$TAG" --draft=false --title "$VERSION_NAME"
           else
-            gh release create "$V" "$F" --target "$GITHUB_SHA" --title "Ambient Music Mod $V" \
-              --notes "Ambient Music Mod $V (fork build with resumable download diagnostics)." --latest
+            gh release create "$TAG" "$APK_PATH#AmbientMusicMod-${VERSION_NAME}.apk" \
+              --title "$VERSION_NAME" \
+              --notes "Automated signed release of Ambient Music Mod v${VERSION_NAME}." \
+              --draft=false
           fi
