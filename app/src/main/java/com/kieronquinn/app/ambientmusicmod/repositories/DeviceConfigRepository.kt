@@ -68,7 +68,7 @@ class DeviceConfigRepositoryImpl(
         private const val DEFAULT_SUPERPACKS_REQUIRE_CHARGING = false
 
         private const val SUPERPACKS_REQUIRE_WIFI = "Superpacks__require_wifi_by_default"
-        private const val DEFAULT_SUPERPACKS_REQUIRE_WIFI = true
+        private const val DEFAULT_SUPERPACKS_REQUIRE_WIFI = false
 
         private const val DEVICE_COUNTRY = "NowPlaying__device_country"
         private const val DEFAULT_DEVICE_COUNTRY = "" //Empty = automatic

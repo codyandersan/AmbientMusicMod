@@ -18,12 +18,22 @@ data class Release(
 
 private const val CONTENT_TYPE_APK = "application/vnd.android.package-archive"
 
+/**
+ *  GitHub derives an asset's content_type from the upload request, so an APK can legitimately
+ *  come back as octet-stream/zip. Accept the APK type, or any asset named *.apk.
+ */
+fun GitHubRelease.Asset.isApk(): Boolean {
+    return contentType == CONTENT_TYPE_APK || fileName?.endsWith(".apk", ignoreCase = true) == true
+}
+
 fun GitHubRelease.toRelease(title: String, localVersion: String?): Release? {
-    val versionName = versionName ?: return null
-    val asset = assets?.firstOrNull { it.contentType == CONTENT_TYPE_APK } ?: return null
+    val tag = tag ?: return null
+    //GitHub omits release name/body when empty, so fall back instead of rejecting the release
+    val versionName = versionName?.takeIf { it.isNotBlank() } ?: tag
+    val asset = assets?.firstOrNull { it.isApk() } ?: return null
     val downloadUrl = asset.downloadUrl ?: return null
     val fileName = asset.fileName ?: return null
     val gitHubUrl = gitHubUrl ?: return null
-    val body = body ?: return null
-    return Release(title, tag!!, versionName, localVersion, downloadUrl, fileName, gitHubUrl, body)
+    val body = body ?: ""
+    return Release(title, tag, versionName, localVersion, downloadUrl, fileName, gitHubUrl, body)
 }

@@ -266,6 +266,10 @@ class ShardsRepositoryImpl(
                 it.cacheManifest()
             }
         }catch (e: Exception){
+            //Do not swallow silently: surfaced in logcat and the Download diagnostics screen
+            android.util.Log.e("AMMShards", "Failed to fetch shards pointer", e)
+            com.kieronquinn.app.ambientmusicmod.diagnostics.DiagnosticsState.lastPointerError =
+                "${e.javaClass.simpleName}: ${e.message}"
             null
         } ?: run {
             emit(null)

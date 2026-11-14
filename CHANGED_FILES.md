@@ -1,0 +1,14 @@
+- .github/workflows/build.yml: Actions build; decodes keystore, unit tests, assembleRelease, apksigner verify, artifact, release tagged = versionName.
+- app/build.gradle: GITHUB_OWNER BuildConfig (default codyandersan, override -PgithubOwner), tolerate missing keystore props, unit test options.
+- app/src/main/AndroidManifest.xml: registers DiagnosticsActivity with its own launcher icon.
+- app/.../providers/GitHubProvider.kt: owner from BuildConfig instead of KieronQuinn.
+- app/.../model/update/Release.kt: accept any *.apk asset or APK content type; no longer rejects releases with empty name/body.
+- app/.../repositories/UpdatesRepository.kt: tag/versionName compare ignores a leading v; picks newest release that has an APK; logs fetch errors.
+- app/.../utils/VersionUtils.kt (new): version normalisation.
+- app/.../repositories/DeviceConfigRepository.kt: superpacksRequireWiFi default false.
+- app/.../repositories/ShardsRepository.kt: pointer fetch errors are logged and recorded instead of swallowed.
+- app/.../model/shards/PackManifest.kt (new): manifest model, validating parser, country selection, "VERSION:URL" flag parser.
+- app/.../diagnostics/DiagnosticsState.kt, DiagnosticsRunner.kt, DiagnosticsActivity.kt (new): diagnostics screen and manifest fallback chain.
+- astrea/.../AstreaRequestLog.java (new) and HttpGrpcBindableService.java: logs URL, headers, response code/headers, bytes, duration, exceptions for every request.
+- app/src/test/.../PackManifestParserTest.kt, VersionUtilsTest.kt (new): unit tests.
+- APPLY.md, TESTPLAN.md, DELETED_FILES.txt, CHANGED_FILES.md: instructions only.

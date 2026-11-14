@@ -7,8 +7,10 @@ import com.kieronquinn.app.ambientmusicmod.BuildConfig
 import com.kieronquinn.app.ambientmusicmod.PACKAGE_NAME_PAM
 import com.kieronquinn.app.ambientmusicmod.model.github.GitHubRelease
 import com.kieronquinn.app.ambientmusicmod.model.update.CachedGitHubRelease
+import com.kieronquinn.app.ambientmusicmod.model.update.isApk
 import com.kieronquinn.app.ambientmusicmod.providers.GitHubProvider
 import com.kieronquinn.app.ambientmusicmod.repositories.UpdatesRepository.UpdateState
+import com.kieronquinn.app.ambientmusicmod.utils.VersionUtils
 import com.kieronquinn.app.ambientmusicmod.utils.extensions.getPackageInfoCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -157,7 +159,7 @@ class UpdatesRepositoryImpl(
         val remoteVersion = remoteRelease?.tag
         return when {
             localVersion != null && localVersionCode != null && remoteRelease != null &&
-                    remoteVersion != null && remoteVersion != localVersion -> {
+                    remoteVersion != null && !VersionUtils.isSameVersion(remoteVersion, localVersion) -> {
                 UpdateState.UpdateAvailable(
                     localVersion,
                     localVersionCode,
@@ -182,9 +184,11 @@ class UpdatesRepositoryImpl(
         val releases = try {
             getReleases().execute().body()
         }catch (e: Exception){
+            android.util.Log.w("AMMUpdates", "Failed to fetch releases from GitHub", e)
             null
         } ?: return null
-        return releases.firstOrNull()
+        //Newest release that actually carries an APK, so helper releases (eg base-assets) are skipped
+        return releases.firstOrNull { release -> release.assets?.any { it.isApk() } == true }
     }
 
     private fun getUpdateCache(repository: String): GitHubRelease? {

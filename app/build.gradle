@@ -15,6 +15,10 @@ apply plugin: 'com.google.android.gms.oss-licenses-plugin'
 String DEFAULT_MANIFEST = "290:https://storage.googleapis.com/music-iq-db/updatable_ytm_db/20240901-030029/manifest.json"
 String DEFAULT_MANIFEST_V3 = "3099:https://storage.googleapis.com/music-iq-db/updatable_db_v3/20240901-030029/manifest.json"
 
+// GitHub account that publishes releases for BOTH Now Playing and Ambient Music Mod.
+// Override with -PgithubOwner=xxx or in ~/.gradle/gradle.properties.
+def githubOwner = (project.findProperty("githubOwner") ?: "codyandersan").toString()
+
 def tagName = '2.4'
 def version = 240
 
@@ -49,6 +53,7 @@ android {
         buildConfigField "String", "DEFAULT_MANIFEST", "\"" + DEFAULT_MANIFEST + "\""
         buildConfigField "String", "DEFAULT_MANIFEST_V3", "\"" + DEFAULT_MANIFEST_V3 + "\""
         buildConfigField "String", "TAG_NAME", "\"${tagName}\""
+        buildConfigField "String", "GITHUB_OWNER", "\"${githubOwner}\""
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -56,7 +61,7 @@ android {
     signingConfigs {
         release {
             def keystore = getKeystoreProperties()
-            if (keystore != null) {
+            if (keystore != null && !keystore.getProperty("storeFile", "").trim().isEmpty()) {
                 storeFile file(keystore.getProperty("storeFile"))
                 storePassword keystore.getProperty("storePassword")
                 keyAlias keystore.getProperty("keyAlias")
@@ -90,6 +95,10 @@ android {
         aidl true
     }
     namespace 'com.kieronquinn.app.ambientmusicmod'
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
 }
 
 protobuf {

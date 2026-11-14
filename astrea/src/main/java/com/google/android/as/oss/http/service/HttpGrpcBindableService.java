@@ -90,6 +90,14 @@ public class HttpGrpcBindableService extends HttpServiceGrpc.HttpServiceImplBase
   public void download(
       HttpDownloadRequest request, StreamObserver<HttpDownloadResponse> responseObserver) {
     logger.atInfo().log("Downloading requested for URL '%s'", request.getUrl());
+    final long startMs = SystemClock.elapsedRealtime();
+    StringBuilder reqHeaders = new StringBuilder();
+    for (HttpProperty property : request.getRequestPropertyList()) {
+      reqHeaders.append(property.getKey()).append('=').append(property.getValueList()).append("; ");
+    }
+    AstreaRequestLog.i(
+        "REQUEST url=" + request.getUrl() + " headers=[" + reqHeaders + "]"
+            + " (look for Range / If-Range / If-None-Match / If-Modified-Since)");
     // Snapshot config so we use consistent values for a single request.
     PcsHttpConfig config = configReader.getConfig();
 
@@ -100,6 +108,7 @@ public class HttpGrpcBindableService extends HttpServiceGrpc.HttpServiceImplBase
     // Reject plain HTTP URLs from downloader.
     if (!isValidHttpsUrl(request.getUrl())) {
       logger.atWarning().log("Rejected non HTTPS url request to PCS");
+      AstreaRequestLog.i("REJECTED non-https url=" + request.getUrl());
       responseObserver.onError(
           new IllegalArgumentException(
               String.format("Rejecting non HTTPS url: '%s'", request.getUrl())));
@@ -115,6 +124,7 @@ public class HttpGrpcBindableService extends HttpServiceGrpc.HttpServiceImplBase
       UnrecognizedNetworkRequestException exception =
           UnrecognizedNetworkRequestException.forUrl(request.getUrl());
       logger.atWarning().withCause(exception).log("Rejected unknown HTTPS request to PCS");
+      AstreaRequestLog.w("REJECTED by networkUsageLog.shouldRejectRequest url=" + request.getUrl(), exception);
 
       com.google.rpc.Status statusProto =
           com.google.rpc.Status.newBuilder()
@@ -140,10 +150,21 @@ public class HttpGrpcBindableService extends HttpServiceGrpc.HttpServiceImplBase
     try {
       response = client.newCall(okRequest.build()).execute();
     } catch (IOException e) {
+      AstreaRequestLog.w(
+          "FAILED before response url=" + request.getUrl() + " after "
+              + (SystemClock.elapsedRealtime() - startMs) + "ms", e);
       responseObserver.onError(e);
       insertNetworkUsageLogRow(networkUsageLogRepository, request, Status.FAILED, 0L);
       return;
     }
+    AstreaRequestLog.i(
+        "RESPONSE url=" + request.getUrl() + " code=" + response.code()
+            + " content-length=" + response.header("Content-Length")
+            + " content-range=" + response.header("Content-Range")
+            + " accept-ranges=" + response.header("Accept-Ranges")
+            + " etag=" + response.header("ETag")
+            + " content-type=" + response.header("Content-Type")
+            + " headersAfter=" + (SystemClock.elapsedRealtime() - startMs) + "ms");
 
     ResponseHeaders.Builder responseHeaders =
         ResponseHeaders.newBuilder().setResponseCode(response.code());
@@ -165,12 +186,16 @@ public class HttpGrpcBindableService extends HttpServiceGrpc.HttpServiceImplBase
       logger.atInfo().log(
           "Received an empty body for URL '%s'. Responding with fetch_completed.",
           request.getUrl());
+      AstreaRequestLog.i("EMPTY BODY url=" + request.getUrl());
       responseObserver.onCompleted();
       insertNetworkUsageLogRow(networkUsageLogRepository, request, Status.SUCCEEDED, 0L);
       return;
     }
 
     final ParcelFileDescriptor pfd = config.writeToPfd() ? WRITEABLE_FILE_CONTEXT_KEY.get() : null;
+    AstreaRequestLog.i(
+        "BODY url=" + request.getUrl() + " writeToPfdConfig=" + config.writeToPfd()
+            + " pfdPresent=" + (pfd != null) + " onReadyHandler=" + config.onReadyHandlerEnabled());
     if (config.onReadyHandlerEnabled() && pfd == null) {
       // Only use onReadyHandler if it is enabled by flag AND we have not received a direct pfd.
       ServerCallStreamObserver<HttpDownloadResponse> serverStreamObserver =
@@ -183,7 +208,8 @@ public class HttpGrpcBindableService extends HttpServiceGrpc.HttpServiceImplBase
               body.byteStream(),
               config.ipcStreamingThrottleMs(),
               executor,
-              networkUsageLogRepository);
+              networkUsageLogRepository,
+              startMs);
       serverStreamObserver.setOnReadyHandler(onReadyHandler);
       // First call is required to be manual as per GRPC docs.
       onReadyHandler.run();
@@ -230,16 +256,24 @@ public class HttpGrpcBindableService extends HttpServiceGrpc.HttpServiceImplBase
                 logger.atInfo().log(
                     "[pfd-write] DOWNLOAD COMPLETE: Downloaded %d bytes from URL [%s].",
                     totalBytesRead, request.getUrl());
+                AstreaRequestLog.i(
+                    "COMPLETE(pfd) url=" + request.getUrl() + " bytes=" + totalBytesRead
+                        + " duration=" + (SystemClock.elapsedRealtime() - startMs) + "ms");
                 responseObserver.onCompleted();
                 insertNetworkUsageLogRow(
                     networkUsageLogRepository, request, Status.SUCCEEDED, totalBytesRead);
               } catch (IOException e) {
                 logger.atWarning().withCause(e).log(
                     "Failed performing IO operation while handling URL '%s'", request.getUrl());
+                AstreaRequestLog.w(
+                    "FAILED(pfd) url=" + request.getUrl() + " bytesSoFar=" + totalBytesRead
+                        + " duration=" + (SystemClock.elapsedRealtime() - startMs) + "ms", e);
                 responseObserver.onError(e);
                 insertNetworkUsageLogRow(
                     networkUsageLogRepository, request, Status.FAILED, totalBytesRead);
               } catch (StatusRuntimeException e) {
+                AstreaRequestLog.w(
+                    "GRPC error(pfd) url=" + request.getUrl() + " bytesSoFar=" + totalBytesRead, e);
                 if (((ServerCallStreamObserver) responseObserver).isCancelled()) {
                   logCallCancelledByClient(e, networkUsageLogRepository, request, totalBytesRead);
                 } else {
@@ -264,6 +298,8 @@ public class HttpGrpcBindableService extends HttpServiceGrpc.HttpServiceImplBase
       long size) {
     logger.atWarning().withCause(error).log(
         "Failed to fetch response body for URL '%s'. Call cancelled by client.", request.getUrl());
+    AstreaRequestLog.w(
+        "CANCELLED by client url=" + request.getUrl() + " bytesSoFar=" + size, error);
     insertNetworkUsageLogRow(networkUsageLogRepository, request, Status.FAILED, size);
   }
 
@@ -305,6 +341,7 @@ public class HttpGrpcBindableService extends HttpServiceGrpc.HttpServiceImplBase
     private final int ipcStreamingThrottleMs;
     private final Executor backgroundExecutor;
     private final NetworkUsageLogRepository networkUsageLogRepository;
+    private final long startMs;
 
     public HttpGrpcStreamHandler(
         HttpDownloadRequest request,
@@ -312,7 +349,9 @@ public class HttpGrpcBindableService extends HttpServiceGrpc.HttpServiceImplBase
         InputStream is,
         int ipcStreamingThrottleMs,
         Executor executor,
-        NetworkUsageLogRepository networkUsageLogRepository) {
+        NetworkUsageLogRepository networkUsageLogRepository,
+        long startMs) {
+      this.startMs = startMs;
       this.request = request;
       this.responseObserver = serverStreamObserver;
       this.bodyStream = is;
@@ -380,6 +419,9 @@ public class HttpGrpcBindableService extends HttpServiceGrpc.HttpServiceImplBase
         logger.atInfo().log(
             "[onReadyHandler] DOWNLOAD COMPLETE: Downloaded %d bytes from URL [%s].",
             totalBytesRead.get(), request.getUrl());
+        AstreaRequestLog.i(
+            "COMPLETE(stream) url=" + request.getUrl() + " bytes=" + totalBytesRead.get()
+                + " duration=" + (SystemClock.elapsedRealtime() - startMs) + "ms");
         try {
           responseObserver.onCompleted();
         }catch (IllegalStateException e){
@@ -392,6 +434,9 @@ public class HttpGrpcBindableService extends HttpServiceGrpc.HttpServiceImplBase
       } catch (IOException e) {
         logger.atWarning().withCause(e).log(
             "Failed performing IO operation while downloading URL [%s].", request.getUrl());
+        AstreaRequestLog.w(
+            "FAILED(stream) url=" + request.getUrl() + " bytesSoFar=" + totalBytesRead.get()
+                + " duration=" + (SystemClock.elapsedRealtime() - startMs) + "ms", e);
         responseObserver.onError(e);
         backgroundExecutor.execute(
             () ->
