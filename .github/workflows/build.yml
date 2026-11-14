@@ -90,6 +90,9 @@ jobs:
             echo "keyPassword=$KEY_PASSWORD"
           } > local.properties
 
+      - name: Make gradlew executable (executable bit is lost when a repo is uploaded from a zip)
+        run: chmod +x gradlew
+
       - name: Unit tests
         run: ./gradlew :app:testReleaseUnitTest --stacktrace
 
